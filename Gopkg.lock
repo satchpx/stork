@@ -752,15 +752,15 @@
   revision = "1c18ebeaf685dfc584a49545bc590a13fa8b7617"
 
 [[projects]]
-  branch = "master"
-  digest = "1:2277c50cc404f9b12bd3d8286d806cc95fda65b3d0eb08c82ce9cb7118b4f03c"
+  branch = "backuplocation"
+  digest = "1:9a8ca07a2f12c22f75ef413fbf513b50cc41e6d6a40f421a479e3a1d0efc9f1b"
   name = "github.com/portworx/sched-ops"
   packages = [
     "k8s",
     "task",
   ]
   pruneopts = "UT"
-  revision = "465f2f0585413db8efdfebd781778cc9d0e940ce"
+  revision = "40866a0356c5f9ea2837a545d8fc3a8bd2c93e58"
 
 [[projects]]
   branch = "master"

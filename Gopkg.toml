@@ -42,9 +42,9 @@ required = [
   name = "github.com/libopenstorage/openstorage"
   branch = "release-6.0"
 
-[[constraint]]
+[[override]]
   name = "github.com/portworx/sched-ops"
-  branch = "master"
+  branch = "backuplocation"
 
 [[constraint]]
   branch = "master"
