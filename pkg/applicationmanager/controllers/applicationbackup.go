@@ -266,6 +266,22 @@ func (a *ApplicationBackupController) backupVolumes(backup *stork_api.Applicatio
 				v1.EventTypeWarning,
 				string(stork_api.ApplicationBackupStatusFailed),
 				message)
+
+			// Cancel any backups that might have started and mark the backup as failed
+			err := a.Driver.CancelBackup(backup)
+			if err != nil {
+				message := fmt.Sprintf("Error cancelling ApplicationBackup for volumes: %v", err)
+				log.ApplicationBackupLog(backup).Errorf(message)
+				a.Recorder.Event(backup,
+					v1.EventTypeWarning,
+					string(stork_api.ApplicationBackupStatusFailed),
+					message)
+			}
+			backup.Status.Status = stork_api.ApplicationBackupStatusFailed
+			err = sdk.Update(backup)
+			if err != nil {
+				return err
+			}
 			return nil
 		}
 		backup.Status.Volumes = volumeInfos
