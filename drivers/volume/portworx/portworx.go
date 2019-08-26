@@ -13,7 +13,6 @@ import (
 	"time"
 
 	version "github.com/hashicorp/go-version"
-	"github.com/heptio/ark/pkg/util/collections"
 	crdv1 "github.com/kubernetes-incubator/external-storage/snapshot/pkg/apis/crd/v1"
 	crdclient "github.com/kubernetes-incubator/external-storage/snapshot/pkg/client"
 	"github.com/kubernetes-incubator/external-storage/snapshot/pkg/controller/snapshotter"
@@ -45,6 +44,7 @@ import (
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -2053,10 +2053,13 @@ func (p *portworx) UpdateMigratedPersistentVolumeSpec(
 	}
 
 	// Get access to the csi section of the PV
-	csiSpec, err := collections.GetMap(object.UnstructuredContent(), "spec.csi")
+	csiSpec, found, err := unstructured.NestedStringMap(object.UnstructuredContent(), "spec", "csi")
+	if err != nil {
+		return nil, err
+	}
 
 	// Determine if CSI is used
-	if err == nil {
+	if found {
 		// Check the driver is a Portworx driver
 		switch csiSpec["driver"] {
 		case crdv1.PortworxCsiDeprecatedProvisionerName:
@@ -2066,16 +2069,13 @@ func (p *portworx) UpdateMigratedPersistentVolumeSpec(
 			return object, nil
 		}
 
-		// Fallback to in-tree driver in case GetMap() returns an empty
-		// csiSpec object.
+		// Fallback to in-tree driver in case CSI map isn't found
 	}
 
-	portworxSpec, err := collections.GetMap(object.UnstructuredContent(), "spec.portworxVolume")
+	err = unstructured.SetNestedField(object.UnstructuredContent(), metadata.GetName(), "spec", "portworxVolume", "volumeID")
 	if err != nil {
 		return nil, err
 	}
-	portworxSpec["volumeID"] = metadata.GetName()
-
 	return object, nil
 }
 
@@ -2641,6 +2641,7 @@ func (p *portworx) CancelRestore(restore *stork_crd.ApplicationRestore) error {
 }
 
 func (p *portworx) CreateVolumeClones(clone *stork_crd.ApplicationClone) error {
+	createdClones := make([]string, 0)
 	volDriver, err := p.getUserVolDriver(clone.Annotations)
 	if err != nil {
 		return err
@@ -2655,13 +2656,25 @@ func (p *portworx) CreateVolumeClones(clone *stork_crd.ApplicationClone) error {
 		}
 		_, err := volDriver.Snapshot(vInfo.Volume, false, locator, true)
 		if err != nil {
-			vInfo.Status = stork_crd.ApplicationCloneStatusFailed
-			vInfo.Reason = err.Error()
-			return err
+			// Mark this clone for deletion too if it already existed, so that
+			// all clones can be recreated on the next try
+			if isAlreadyExistsError(err) {
+				createdClones = append(createdClones, vInfo.Volume)
+			}
+			// Delete the clones that we already created
+			for _, cloneVolume := range createdClones {
+				if err := volDriver.Delete(cloneVolume); err != nil {
+					log.ApplicationCloneLog(clone).Warnf("error deleting cloned volume %v on failure: %v", cloneVolume, err)
+				}
+			}
+			return fmt.Errorf("error creating clone %v for volume %v: %v", vInfo.CloneVolume, vInfo.Volume, err)
 		}
+		createdClones = append(createdClones, vInfo.CloneVolume)
+	}
+	// Update the status for all the volumes only once we are all done
+	for _, vInfo := range clone.Status.Volumes {
 		vInfo.Status = stork_crd.ApplicationCloneStatusSuccessful
 		vInfo.Reason = "Volume cloned succesfully"
-
 	}
 	return nil
 }
